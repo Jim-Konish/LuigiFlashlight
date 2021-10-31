@@ -77,6 +77,8 @@
 // LED brightness, 0 (min) to 255 (max)
 #define BRIGHTNESS 255
 
+#define FLASHLIGHT_BRIGHTNESS (100)
+
 /* Declare the NeoPixel strip object:
 *     * Argument 1 = Number of LEDs in the LED strip
 *     * Argument 2 = Arduino pin number
@@ -104,11 +106,13 @@ typedef enum
 
 static lightPattern_t activeLightPattern = LIGHT_PATTERN_FLASHLIGHT;
 
-static uint16_t freezeStrobeFrame = 0;
+static uint32_t freezeStrobeStartTime = 0;
 
 void rainbowNonblocking(void);
 
 void setWhite(uint8_t brightness);
+
+void setWarmWhite(uint8_t brightness);
 
 void setup()
 {
@@ -174,14 +178,14 @@ void tenMillisecondLoopTask(uint32_t milliseconds)
         case BUTTON_GREEN:
         {
             activeLightPattern = LIGHT_PATTERN_DIM_WHITE;
-            setWhite(50);
+            setWarmWhite(50);
         }
         break;
 
         case BUTTON_NONE:
         {
             activeLightPattern = LIGHT_PATTERN_FLASHLIGHT;
-            setWhite(150);
+            setWarmWhite(FLASHLIGHT_BRIGHTNESS);
         } 
         break;
 
@@ -204,48 +208,27 @@ void setWhite(uint8_t brightness)
     strip.show();
 }
 
-/*
-* Fills a strip with a specific color, starting at 0 and continuing
-* until the entire strip is filled. Takes two arguments:
-*
-*     1. the color to use in the fill
-*     2. the amount of time to wait after writing each LED
-*/
-void colorWipe(uint32_t color, unsigned long wait)
+void setWarmWhite(uint8_t brightness)
 {
-    for (unsigned int i = 0; i < strip.numPixels(); i++)
+    // Use the following max brightness color to scale the RGB values
+    uint32_t warmWhiteRgb[] = { 255, 244, 170};
+
+    uint8_t rgb[] = {0, 0, 0};
+
+    // Iterate through the channels, applying the specified brightness
+    for(size_t i = 0; i < 3; i++)
     {
-        strip.setPixelColor(i, color);
-        strip.show();
-        delay(wait);
+        // Fixed point scaling in Q8
+        rgb[i] = ((warmWhiteRgb[i] * brightness) >> 8) & 0xFF;
     }
-}
 
-/*
-* Runs a marquee style "chase" sequence. Takes three arguments:
-*
-*     1. the color to use in the chase
-*     2. the amount of time to wait between frames
-*     3. the number of LEDs in each 'chase' group
-*     3. the number of chases sequences to perform
-*/
-void theaterChase(uint32_t color, unsigned long wait, unsigned int groupSize, unsigned int numChases)
-{
-    for (unsigned int chase = 0; chase < numChases; chase++)
+    // Apply the final RGB values to each pixel
+    for (int i = 0; i < strip.numPixels(); i++)
     {
-        for (unsigned int pos = 0; pos < groupSize; pos++)
-        {
-            strip.clear();  // turn off all LEDs
-
-            for (unsigned int i = pos; i < strip.numPixels(); i += groupSize)
-            {
-                strip.setPixelColor(i, color);  // turn on the current group
-            }
-
-            strip.show();
-            delay(wait);
-        }
+        strip.setPixelColor(i, strip.Color(rgb[0], rgb[1], rgb[2]));
     }
+
+    strip.show();
 }
 
 /*
@@ -302,27 +285,59 @@ void blank(unsigned long wait)
 
 void resetFreezeStrobe(void)
 {
-    freezeStrobeFrame = 0;
+    freezeStrobeStartTime = millis();
+    strip.clear();
+    strip.show();
 }
+
+
+#define FREEZE_BUILD_END_TIME (500)
+#define FREEZE_FADE_DURATION (1000)
+#define FREEZE_FADE_END_TIME (FREEZE_BUILD_END_TIME + FREEZE_FADE_DURATION)
+#define FREEZE_FLICKER_DURATION (2000)
+#define FREEZE_FLICKER_END_TIME (FREEZE_FADE_END_TIME + FREEZE_FLICKER_DURATION)
+#define FREEZE_STROBE_DURATION (100)
+#define FREEZE_STROBE_END_TIME (FREEZE_FLICKER_END_TIME + FREEZE_STROBE_DURATION)
+#define FREEZE_FINAL_FADE_DURATION (200)
+#define FREEZE_FINAL_FADE_END_TIME (FREEZE_STROBE_END_TIME + FREEZE_FINAL_FADE_DURATION)
+
+#define FREEZE_BUILD_MAX (200)
+#define FREEZE_FLICKER_MAX (30)
+#define FREEZE_FLICKER_MIN (5)
+#define FREEZE_STROBE_MAX (255)
+#define FREEZE_FINAL_FADE_DIFF (FREEZE_STROBE_MAX - FLASHLIGHT_BRIGHTNESS)
+
 
 void freezeStrobeNonBlocking(void)
 {
-    if(freezeStrobeFrame < 20)
+    uint32_t ms = millis() - freezeStrobeStartTime;
+
+
+    if(ms < FREEZE_BUILD_END_TIME)
     {
-        strip.clear();
-        strip.show();
+        setWarmWhite(ms*FREEZE_BUILD_MAX/FREEZE_BUILD_END_TIME);
     }
-    else if(freezeStrobeFrame < 25)
+    else if(ms < FREEZE_FADE_END_TIME)
     {
-        setWhite(255);
+        uint32_t timeInInitialFade = ms - FREEZE_BUILD_END_TIME;
+        setWarmWhite(FREEZE_BUILD_MAX - ((FREEZE_BUILD_MAX - FREEZE_FLICKER_MAX) * timeInInitialFade / FREEZE_FADE_DURATION));
     }
-    else if(freezeStrobeFrame < 50)
+    else if(ms < FREEZE_FLICKER_END_TIME)
     {
-        strip.clear();
-        strip.show();
+        setWarmWhite(ms % (FREEZE_FLICKER_MAX - FREEZE_FLICKER_MIN) + FREEZE_FLICKER_MIN);
+    }
+    else if(ms < FREEZE_STROBE_END_TIME)
+    {
+        setWarmWhite(FREEZE_STROBE_MAX);
+    }
+    else if(ms < FREEZE_FINAL_FADE_END_TIME)
+    {
+        uint32_t timeInFinalFade = (ms - FREEZE_STROBE_END_TIME);
+
+        setWarmWhite(FREEZE_STROBE_MAX - (FREEZE_FINAL_FADE_DIFF*timeInFinalFade/FREEZE_FINAL_FADE_DURATION));
     }
     else
     {
-        setWhite(100);
+        setWarmWhite(FLASHLIGHT_BRIGHTNESS);
     }
 }
