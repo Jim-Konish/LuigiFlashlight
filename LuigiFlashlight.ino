@@ -273,7 +273,7 @@ void rainbowNonblocking(void)
         // blending to white except at very close range.  Dividing by (numPixels + 1) should 
         // cause the hues to bunch up, making the color shifting of the rainbow effect 
         // more apparent
-        unsigned long pixelHue = firstPixelHue + (i * 65536UL / (strip.numPixels() + 1)); // vary LED hue based on position
+        unsigned long pixelHue = firstPixelHue + (i * 65536UL / (strip.numPixels() + 2)); // vary LED hue based on position
         strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(pixelHue)));  // assign color, using gamma curve for a more natural look
     }
 
